@@ -109,6 +109,9 @@ class RecipeFactory
             // Find or create the ingredient
             $ingredient = static::findOrCreateIngredient($ingredientName);
 
+            // Get original string for storage
+            $originalText = $ingredientData['_original_string'] ?? $ingredientData['original'] ?? null;
+
             // Create the recipe_ingredient pivot record with usage details
             RecipeIngredient::create([
                 'recipe_id' => $recipe->id,
@@ -117,9 +120,27 @@ class RecipeFactory
                 'unit' => $ingredientData['unit'] ?? null,
                 'preparation' => $ingredientData['preparation'] ?? null,
                 'notes' => $ingredientData['notes'] ?? null,
+                'original_text' => $originalText,
                 'order' => $index,
                 'is_optional' => $ingredientData['is_optional'] ?? false,
             ]);
+
+            // Handle "or" substitutions
+            if (!empty($ingredientData['_has_or'])) {
+                $orData = static::getIngredientService()->extractOrSubstitution($ingredientName);
+                if ($orData) {
+                    $primaryIngredient = static::findOrCreateIngredient($orData['primary']);
+                    $substituteIngredient = static::findOrCreateIngredient($orData['substitute']);
+
+                    static::getIngredientService()->createSubstitution(
+                        $primaryIngredient,
+                        $substituteIngredient,
+                        $orData['original']
+                    );
+
+                    Log::info("Created substitution: {$orData['primary']} -> {$orData['substitute']}");
+                }
+            }
         }
 
         Log::info("Attached " . count($ingredients) . " ingredients to recipe {$recipe->id}");

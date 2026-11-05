@@ -93,13 +93,81 @@ class IngredientService
         '()', '( )', // Empty parentheses
     ];
 
+    private $ingredientImportLog =  'documentation/ingredients.txt';
+
+    public function __construct()
+    {
+        file_put_contents($this->ingredientImportLog, '');
+    }
+
     /**
      * Parse an ingredient string into structured components
+     * Returns array with 'ingredients' (array of parsed ingredients) and 'has_or' (bool)
+     *
+     * @param string $rawIngredient The raw ingredient string from recipe
+     * @return array ['ingredients' => array, 'has_or' => bool]
+     */
+    public function parseIngredient(string $rawIngredient): array
+    {
+        file_put_contents($this->ingredientImportLog, $rawIngredient. PHP_EOL, FILE_APPEND | LOCK_EX);
+
+        $ingredient = trim($rawIngredient);
+
+        if (empty($ingredient)) {
+            return ['ingredients' => [], 'has_or' => false];
+        }
+
+        // Check for "or" - these stay together but flag for substitution creation
+        $hasOr = stripos($ingredient, ' or ') !== false;
+
+        // Find all "and" positions that should trigger splits
+        $andPositions = [];
+        $offset = 0;
+        while (($pos = stripos($ingredient, ' and ', $offset)) !== false) {
+            if ($this->shouldSplitOnAnd($ingredient, $pos)) {
+                $andPositions[] = $pos;
+            }
+            $offset = $pos + 5; // +5 for " and "
+        }
+
+        // If no valid "and" splits, parse as single ingredient
+        if (empty($andPositions)) {
+            $parsed = $this->parseSingleIngredient($rawIngredient);
+            return [
+                'ingredients' => $parsed ? [$parsed] : [],
+                'has_or' => $hasOr,
+            ];
+        }
+
+        // Split on "and" and parse each part
+        $parts = $this->splitOnAnd($ingredient, $andPositions);
+        $parsedIngredients = [];
+
+        // Try to detect shared leading adjectives/amount that should apply to both
+        // Example: "1 cup fresh basil and oregano" -> "1 cup fresh basil", "1 cup fresh oregano"
+        $sharedPrefix = $this->extractSharedPrefix($parts);
+
+        foreach ($parts as $part) {
+            $fullPart = $sharedPrefix ? ($sharedPrefix . ' ' . trim($part)) : $part;
+            $parsed = $this->parseSingleIngredient($fullPart);
+            if ($parsed) {
+                $parsedIngredients[] = $parsed;
+            }
+        }
+
+        return [
+            'ingredients' => $parsedIngredients,
+            'has_or' => false, // Split ingredients don't preserve "or"
+        ];
+    }
+
+    /**
+     * Parse a single ingredient string (original parseIngredient logic)
      *
      * @param string $rawIngredient The raw ingredient string from recipe
      * @return array|null Parsed components or null if invalid
      */
-    public function parseIngredient(string $rawIngredient): ?array
+    protected function parseSingleIngredient(string $rawIngredient): ?array
     {
         $original = $rawIngredient;
         $ingredient = trim($rawIngredient);
@@ -163,6 +231,65 @@ class IngredientService
         $parsed['notes'] = $notes;
 
         return $parsed;
+    }
+
+    /**
+     * Split string on "and" positions
+     */
+    protected function splitOnAnd(string $text, array $andPositions): array
+    {
+        $parts = [];
+        $lastPos = 0;
+
+        foreach ($andPositions as $pos) {
+            $parts[] = trim(substr($text, $lastPos, $pos - $lastPos));
+            $lastPos = $pos + 5; // +5 for " and "
+        }
+
+        // Add remaining part
+        $parts[] = trim(substr($text, $lastPos));
+
+        return array_filter($parts); // Remove empty parts
+    }
+
+    /**
+     * Extract shared prefix from ingredient parts
+     * Example: ["fresh basil", "oregano"] -> "fresh"
+     */
+    protected function extractSharedPrefix(array $parts): ?string
+    {
+        if (count($parts) < 2) {
+            return null;
+        }
+
+        // Get first words of each part
+        $firstWords = array_map(function($part) {
+            $words = preg_split('/\s+/', trim($part));
+            return strtolower(reset($words));
+        }, $parts);
+
+        // Check if first part has amount/unit/adjective that should be shared
+        $firstPart = trim($parts[0]);
+        $words = preg_split('/\s+/', $firstPart);
+
+        if (count($words) < 2) {
+            return null;
+        }
+
+        // Common adjectives that should be shared
+        $sharedAdjectives = ['fresh', 'dried', 'frozen', 'canned', 'cooked', 'raw', 'chopped'];
+
+        $firstWord = strtolower($words[0]);
+
+        // Check if it's a shared adjective and second part doesn't have it
+        if (in_array($firstWord, $sharedAdjectives)) {
+            $secondPartWords = preg_split('/\s+/', trim($parts[1]));
+            if (!in_array($firstWord, array_map('strtolower', $secondPartWords))) {
+                return $words[0]; // Return the adjective to prepend
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -389,6 +516,115 @@ class IngredientService
     {
         // Use Laravel's Str::singular() helper
         return Str::singular($name);
+    }
+
+    /**
+     * Detect if "and" should split into separate ingredients
+     *
+     * Returns false if "and" is part of:
+     * - Preparation instructions (peeled and sliced)
+     * - Size descriptors (bone-in and skinless)
+     * - Unit measurements (1 cup and 2 tablespoons)
+     *
+     * Returns true if "and" connects two ingredient names (salt and pepper)
+     */
+    protected function shouldSplitOnAnd(string $text, int $andPosition): bool
+    {
+        $before = substr($text, 0, $andPosition);
+        $after = substr($text, $andPosition + 5); // +5 for " and "
+
+        // Trim both sides
+        $before = trim($before);
+        $after = trim($after);
+
+        // Check if preceded by preparation word
+        foreach ($this->preparationWords as $prep) {
+            if (preg_match('/\b' . preg_quote($prep, '/') . '\s*$/i', $before)) {
+                return false; // "peeled and sliced" - keep together
+            }
+        }
+
+        // Check if preceded by size descriptor
+        foreach ($this->sizeDescriptors as $descriptor) {
+            if (preg_match('/\b' . preg_quote($descriptor, '/') . '\s*$/i', $before)) {
+                return false; // "bone-in and skinless" - keep together
+            }
+        }
+
+        // Check if "and" follows a unit measurement (suggests compound measurement)
+        $unitsPattern = implode('|', array_map('preg_quote', $this->units));
+        if (preg_match('/\b(' . $unitsPattern . ')\s*$/i', $before)) {
+            return false; // "1 cup and 2 tablespoons" - keep together
+        }
+
+        // Check for brand name pattern (e.g., "Ben and Jerry's")
+        if (preg_match('/\'s\b/i', $after)) {
+            return false; // Brand name - keep together
+        }
+
+        // Check if both sides have substantial words (likely ingredient names)
+        $beforeWords = preg_split('/\s+/', $before);
+        $afterWords = preg_split('/\s+/', $after);
+
+        $lastBeforeWord = end($beforeWords);
+        $firstAfterWord = reset($afterWords);
+
+        // Both sides should have words longer than 2 chars
+        if (strlen($lastBeforeWord) > 2 && strlen($firstAfterWord) > 2) {
+            // Additional check: make sure they're not just articles or connectors
+            $connectors = ['the', 'a', 'an', 'to', 'of', 'for', 'in', 'on', 'at'];
+            if (!in_array(strtolower($firstAfterWord), $connectors)) {
+                return true; // Likely "salt and pepper"
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Extract primary and substitute from "or" phrase
+     *
+     * Example: "Shaoxing wine or dry sherry" -> ["primary" => "Shaoxing wine", "substitute" => "dry sherry"]
+     */
+    public function extractOrSubstitution(string $ingredientName): ?array
+    {
+        if (stripos($ingredientName, ' or ') === false) {
+            return null;
+        }
+
+        // Split on first occurrence of " or "
+        $parts = preg_split('/\s+or\s+/i', $ingredientName, 2);
+
+        if (count($parts) !== 2) {
+            return null;
+        }
+
+        $primary = trim($parts[0]);
+        $substitute = trim($parts[1]);
+
+        // Validate both parts are substantial
+        if (strlen($primary) < 2 || strlen($substitute) < 2) {
+            return null;
+        }
+
+        return [
+            'primary' => $primary,
+            'substitute' => $substitute,
+            'original' => $ingredientName,
+        ];
+    }
+
+    /**
+     * Create substitution record
+     */
+    public function createSubstitution(Ingredient $primary, Ingredient $substitute, ?string $context = null): \App\Models\IngredientSubstitution
+    {
+        return \App\Models\IngredientSubstitution::firstOrCreate([
+            'primary_ingredient_id' => $primary->id,
+            'substitute_ingredient_id' => $substitute->id,
+        ], [
+            'context' => $context,
+        ]);
     }
 
     /**

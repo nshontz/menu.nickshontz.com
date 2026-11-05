@@ -40,6 +40,16 @@ class Ingredient extends Model
             ->withPivot('created_at');
     }
 
+    public function substitutes(): HasMany
+    {
+        return $this->hasMany(IngredientSubstitution::class, 'primary_ingredient_id');
+    }
+
+    public function isSubstituteFor(): HasMany
+    {
+        return $this->hasMany(IngredientSubstitution::class, 'substitute_ingredient_id');
+    }
+
     /**
      * Get the plural form of the ingredient name
      */

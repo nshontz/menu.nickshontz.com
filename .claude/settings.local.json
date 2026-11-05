@@ -19,7 +19,8 @@
       "Bash(composer require:*)",
       "Bash(ls:*)",
       "Bash(yes:*)",
-      "Bash(./pre-flight-check:*)"
+      "Bash(./pre-flight-check:*)",
+      "Bash(php /tmp/test_split.php:*)"
     ],
     "deny": []
   }
