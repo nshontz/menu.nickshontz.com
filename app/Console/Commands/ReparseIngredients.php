@@ -19,6 +19,7 @@ class ReparseIngredients extends Command
     public function handle()
     {
         $this->ingredientService = new IngredientService();
+        $this->ingredientService->resetImportLog();
         $dryRun = $this->option('dry-run');
 
         if ($dryRun) {

@@ -93,9 +93,18 @@ class IngredientService
         '()', '( )', // Empty parentheses
     ];
 
-    private $ingredientImportLog =  'documentation/ingredients.txt';
+    private string $ingredientImportLog;
 
     public function __construct()
+    {
+        // Absolute path: web requests run from public/, so a relative path breaks there.
+        $this->ingredientImportLog = storage_path('logs/ingredients.txt');
+    }
+
+    /**
+     * Truncate the ingredient import log before a bulk reparse.
+     */
+    public function resetImportLog(): void
     {
         file_put_contents($this->ingredientImportLog, '');
     }
