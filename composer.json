@@ -52,6 +52,9 @@
         ],
         "post-create-project-cmd": [
             "@php artisan key:generate --ansi"
+        ],
+        "lint": [
+            "find app bootstrap config database routes -name '*.php' -print0 | xargs -0 -n1 php -l -d display_errors=1 > /dev/null"
         ]
     },
     "extra": {
