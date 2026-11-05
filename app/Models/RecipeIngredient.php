@@ -17,6 +17,7 @@ class RecipeIngredient extends Model
         'unit',
         'preparation',
         'notes',
+        'original_text',
         'order',
         'is_optional',
     ];

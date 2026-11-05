@@ -13,7 +13,7 @@ class IngredientTagSeeder extends Seeder
     public function run(): void
     {
         $tags = [
-            ['name' => 'Gluten-Free', 'slug' => 'gluten-free', 'type' => 'dietary_restriction', 'icon' => '🌾', 'color' => '#f39c12'],
+            ['name' => 'Contains Gluten', 'slug' => 'contains-gluten', 'type' => 'allergen', 'icon' => '🌾', 'color' => '#f39c12'],
             ['name' => 'Dairy', 'slug' => 'dairy', 'type' => 'allergen', 'icon' => '🥛', 'color' => '#3498db'],
             ['name' => 'Vegan', 'slug' => 'vegan', 'type' => 'dietary_restriction', 'icon' => '🌱', 'color' => '#27ae60'],
             ['name' => 'Vegetarian', 'slug' => 'vegetarian', 'type' => 'dietary_restriction', 'icon' => '🥗', 'color' => '#2ecc71'],

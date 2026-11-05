@@ -144,6 +144,7 @@ class RecipeImportService
      */
     protected function extractRecipeData(array $jsonLd, string $sourceUrl): array
     {
+
         $ingredients = $this->extractIngredients($jsonLd['recipeIngredient'] ?? []);
         $steps = $this->extractSteps($jsonLd['recipeInstructions'] ?? []);
 
@@ -171,8 +172,13 @@ class RecipeImportService
         $ingredients = [];
 
         foreach ($rawIngredients as $raw) {
-            $parsed = $this->parseIngredientString($raw);
-            if ($parsed) {
+            $parsedResult = $this->parseIngredientString($raw);
+
+            // parseIngredientString now returns ['ingredients' => [...], 'has_or' => bool]
+            // We need to add all parsed ingredients and preserve the original string and "has_or" flag
+            foreach ($parsedResult['ingredients'] as $parsed) {
+                $parsed['_original_string'] = $raw; // Store original for later
+                $parsed['_has_or'] = $parsedResult['has_or']; // Flag for substitution creation
                 $ingredients[] = $parsed;
             }
         }
@@ -183,8 +189,9 @@ class RecipeImportService
     /**
      * Parse ingredient string into components
      * Delegates to IngredientService for robust parsing
+     * Returns ['ingredients' => array, 'has_or' => bool]
      */
-    protected function parseIngredientString(string $ingredient): ?array
+    protected function parseIngredientString(string $ingredient): array
     {
         return $this->ingredientService->parseIngredient($ingredient);
     }

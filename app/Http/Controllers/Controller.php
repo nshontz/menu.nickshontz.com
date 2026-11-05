@@ -18,7 +18,7 @@ use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use SebastianBergmann\Diff\Exception;
+use Exception;
 
 class Controller extends BaseController
 {
@@ -53,6 +53,11 @@ class Controller extends BaseController
             $this->forceRefresh = true;
         }
 
+        $dinnerList = collect();
+        $solar = collect();
+        $weatherData = collect();
+        $solarBenefits = ['benefits' => null];
+
         try {
             $dinnerList = $this->anyList->fetchDinnerList($this->forceRefresh);
         } catch (Exception $e) {
@@ -65,6 +70,11 @@ class Controller extends BaseController
         }
         try {
             $weatherData = $this->weather->forecast($this->startDate, $this->forceRefresh);
+        } catch (Exception $e) {
+            Log::error($e->getMessage(), $e->getTrace());
+        }
+        try {
+            $solarBenefits = $this->solarEdge->benefits();
         } catch (Exception $e) {
             Log::error($e->getMessage(), $e->getTrace());
         }
@@ -103,7 +113,7 @@ class Controller extends BaseController
         return response()->json([
             'updated' => Carbon::now(),
             'current_weather' => $this->weather->current($this->forceRefresh),
-            'solar_benefits' => $this->solarEdge->benefits(),
+            'solar_benefits' => $solarBenefits,
             'solar_this_month' => SolarProductionDay::orderBy('date')->where('date', '>=', Carbon::now()->startOfMonth())->get()->pluck('value')->sum(),
             'solar_daily_max' => $this->solarEdge->getMaxDailyGeneration(),
             'days' => $days,

@@ -1,0 +1,75 @@
+name: Deploy
+
+on:
+  push:
+    branches: [production]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - name: Install Dependencies
+        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Lint PHP
+        run: composer lint
+
+  deploy:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Deploy to production
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ vars.DEPLOY_PATH }}
+
+            export COMPOSER_ALLOW_SUPERUSER=1
+
+            # Clear caches before pulling
+            php artisan config:clear
+            php artisan cache:clear
+            php artisan route:clear
+            php artisan view:clear
+            php artisan clear-compiled
+            rm -f bootstrap/cache/services.php bootstrap/cache/packages.php \
+                  bootstrap/cache/config.php bootstrap/cache/routes.php
+
+            php artisan down --retry=60
+
+            git stash
+            git fetch origin
+            git checkout production
+            git pull origin production
+
+            composer install --optimize-autoloader --no-dev --no-interaction
+            composer dump-autoload -o --no-interaction
+
+            npm ci
+            npm run build
+
+            php artisan migrate --force
+
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+
+            php artisan queue:restart
+
+            chgrp -R www-data storage bootstrap/cache
+            chmod -R ug+rwx storage bootstrap/cache
+
+            php artisan up

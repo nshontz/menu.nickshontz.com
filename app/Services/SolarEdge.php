@@ -7,6 +7,7 @@ use App\Models\SolarProductionDay;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 class SolarEdge
 {
@@ -30,16 +31,34 @@ class SolarEdge
         return $this->baseUrl . '/' . $this->siteId . '/' . $path . "?" . http_build_query($params);
     }
 
-    private function httpRequest($url, $clearCache = false, $cacheTimeout = 1)
+    private function httpRequest(string $url, bool $clearCache = false, int $cacheTimeout = 1): mixed
     {
         if ($clearCache) {
             Cache::forget($url);
         }
-        return Cache::remember($url, Carbon::now()->addHours($cacheTimeout), function () use ($url) {
-            return \Httpful\Request::get($url)
-                ->expectsJson()
-                ->send();
-        })->body;
+
+        $cachedResponse = Cache::get($url);
+        if ($cachedResponse !== null) {
+            return $cachedResponse->body;
+        }
+
+        $response = \Httpful\Request::get($url)
+            ->expectsJson()
+            ->send();
+
+        // Error responses are not cached so the next request retries the API.
+        if ($response->hasErrors()) {
+            $message = 'SolarEdge API request failed with HTTP ' . $response->code;
+            Log::error($message, [
+                'path' => parse_url($url, PHP_URL_PATH),
+                'body' => $response->raw_body,
+            ]);
+            throw new RuntimeException($message);
+        }
+
+        Cache::put($url, $response, Carbon::now()->addHours($cacheTimeout));
+
+        return $response->body;
     }
 
     public function energy(Carbon $startDate, $clearCache = false, $days = 7)
